@@ -125,6 +125,7 @@
       <div class="checks">
         <label><input type="checkbox" id="demo_mode" checked /> Demo mode (synthetic control + alchemy/arcca samples + live OneForma)</label>
         <label><input type="checkbox" id="skip_oneforma" /> Skip OneForma (offline merge only)</label>
+        <label><input type="checkbox" id="force_local" /> Send to local master only (demo fallback)</label>
       </div>
       <div class="actions">
         <button id="btnRun">Run merge + QA</button>
@@ -132,9 +133,6 @@
         <button class="success" id="btnDownload" type="button" disabled>Download Result_Merged.xlsx</button>
         <button class="success" id="btnDownloadVendorProd" type="button" disabled>Download Vendor Prod rows</button>
         <button class="success" id="btnSendVendorProd" type="button" disabled>Send data to Vendor Prod Files</button>
-      </div>
-      <div class="checks">
-        <label><input type="checkbox" id="force_local" /> Send to local master only (demo fallback)</label>
       </div>
       <p class="hint">Demo mode uses <code>samples/demo_control.xlsx</code>. After Run you can download the Rate Approval Log row format (Vendor Name, Project Code, Workflow, Locale, Ingestion Batch, File Name, File path, Durations). Send checks duplicates against the live SharePoint Rate Approval Log when Azure/Graph env is set; otherwise it uses <code>masters/Vendor Prod Files.xlsx</code>. Passwords / SAS keys are never shown.</p>
     </section>
