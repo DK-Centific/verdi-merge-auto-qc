@@ -1,4 +1,4 @@
-# Verdi Merge + Auto QC — Centific
+# Verdi Merge + Auto QC tool — Centific
 
 
 > **Not** the Agency Excel Consolidator (`excel-merger` / Centaurus). This is the Verdi OTS Agency Intake → Merge + OneForma QA tool.

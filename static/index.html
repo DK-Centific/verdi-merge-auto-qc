@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Verdi Merge + Auto QC — Centific</title>
+  <title>Verdi Merge + Auto QC tool — Centific</title>
   <style>
     :root {
       --bg: #0f1419;
@@ -24,12 +24,21 @@
       color: var(--text); min-height: 100vh;
     }
     header {
-      padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border);
+      padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);
       background: rgba(15,20,25,.85); backdrop-filter: blur(8px);
       position: sticky; top: 0; z-index: 10;
     }
-    header h1 { margin: 0; font-size: 1.25rem; font-weight: 650; }
-    header p { margin: .35rem 0 0; color: var(--muted); font-size: .9rem; }
+    .nav-brand {
+      display: flex; align-items: center; gap: .85rem;
+    }
+    .nav-brand img {
+      height: 36px; width: auto; max-width: 140px; object-fit: contain;
+      background: #fff; border-radius: 6px; padding: .35rem .5rem;
+    }
+    .nav-titles { display: grid; gap: .15rem; }
+    header h1 { margin: 0; font-size: 1.2rem; font-weight: 650; line-height: 1.25; }
+    header .nav-sub { margin: 0; color: var(--muted); font-size: .82rem; }
+    header p.tagline { margin: .45rem 0 0; color: var(--muted); font-size: .85rem; }
     main { max-width: 1100px; margin: 0 auto; padding: 1.25rem; display: grid; gap: 1rem; }
     .card {
       background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
@@ -80,8 +89,14 @@
 </head>
 <body>
   <header>
-    <h1>OTS Agency Intake → Merge + OneForma QA</h1>
-    <p>Local demo on <code>127.0.0.1:8876</code> · merge + OneForma QA · Send → Rate Approval Log (dedupe by File Name) · secrets masked</p>
+    <div class="nav-brand">
+      <img src="/static/centific-logo.jpg" alt="Centific" />
+      <div class="nav-titles">
+        <h1>Verdi Merge + Auto QC tool</h1>
+        <div class="nav-sub">Centific</div>
+      </div>
+    </div>
+    <p class="tagline">OTS Agency Intake → merge + OneForma QA · Send → Rate Approval Log (dedupe by File Name) · secrets masked</p>
   </header>
   <main>
     <div class="banner">
