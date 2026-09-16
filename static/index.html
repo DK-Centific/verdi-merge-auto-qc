@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verdi Merge + Auto QC — Centific</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --border: #2d3a4f;
+      --text: #e7ecf3;
+      --muted: #9aa8bc;
+      --accent: #3b82f6;
+      --accent2: #22c55e;
+      --warn: #f59e0b;
+      --err: #ef4444;
+      --info: #38bdf8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: linear-gradient(160deg, #0b1220, #121a28 40%, #0f172a);
+      color: var(--text); min-height: 100vh;
+    }
+    header {
+      padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border);
+      background: rgba(15,20,25,.85); backdrop-filter: blur(8px);
+      position: sticky; top: 0; z-index: 10;
+    }
+    header h1 { margin: 0; font-size: 1.25rem; font-weight: 650; }
+    header p { margin: .35rem 0 0; color: var(--muted); font-size: .9rem; }
+    main { max-width: 1100px; margin: 0 auto; padding: 1.25rem; display: grid; gap: 1rem; }
+    .card {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      padding: 1rem 1.1rem;
+    }
+    .card h2 { margin: 0 0 .75rem; font-size: 1rem; }
+    .row { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
+    label { display: grid; gap: .35rem; font-size: .8rem; color: var(--muted); flex: 1; min-width: 200px; }
+    input[type=file], select, input[type=text] {
+      background: #0d1520; border: 1px solid var(--border); color: var(--text);
+      border-radius: 8px; padding: .55rem .65rem; font-size: .9rem;
+    }
+    .checks { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: .75rem; }
+    .checks label { display: flex; align-items: center; gap: .4rem; flex: none; min-width: auto; color: var(--text); font-size: .9rem; }
+    button {
+      border: 0; border-radius: 8px; padding: .65rem 1rem; font-weight: 600; cursor: pointer;
+      background: var(--accent); color: white; font-size: .9rem;
+    }
+    button.secondary { background: #334155; }
+    button.success { background: var(--accent2); color: #052e16; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .9rem; }
+    #log {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .78rem; background: #0a1018; border: 1px solid var(--border);
+      border-radius: 8px; padding: .75rem; height: 220px; overflow: auto; white-space: pre-wrap;
+      color: #c6d4e8;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    th, td { border-bottom: 1px solid var(--border); padding: .45rem .4rem; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+    .table-wrap { max-height: 360px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+    .sev { display: inline-block; padding: .1rem .4rem; border-radius: 999px; font-size: .7rem; font-weight: 700; text-transform: uppercase; }
+    .sev-error { background: rgba(239,68,68,.2); color: #fca5a5; }
+    .sev-warning { background: rgba(245,158,11,.2); color: #fcd34d; }
+    .sev-info { background: rgba(56,189,248,.2); color: #7dd3fc; }
+    .stats { display: flex; gap: .75rem; flex-wrap: wrap; }
+    .stat { background: #0d1520; border: 1px solid var(--border); border-radius: 8px; padding: .6rem .8rem; min-width: 120px; }
+    .stat b { display: block; font-size: 1.2rem; }
+    .stat span { color: var(--muted); font-size: .75rem; }
+    .hint { color: var(--muted); font-size: .8rem; margin-top: .5rem; }
+    a { color: #93c5fd; }
+    .banner {
+      background: rgba(59,130,246,.12); border: 1px solid rgba(59,130,246,.35);
+      color: #bfdbfe; padding: .65rem .8rem; border-radius: 8px; font-size: .85rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>OTS Agency Intake → Merge + OneForma QA</h1>
+    <p>Local demo on <code>127.0.0.1:8876</code> · merge + OneForma QA · Send → Rate Approval Log (dedupe by File Name) · secrets masked</p>
+  </header>
+  <main>
+    <div class="banner">
+      Pipeline: Control workbook → vendor sources (Column G or uploaded fallbacks) → consolidate to OTS columns (incl. ingestionBatch + durationSeconds) → QA vs live OneForma → optional <b>Send data to Vendor Prod Files</b> (appends unique rows into Rate Approval Log on the local master copy; duplicates skipped by File Name).
+      Google Sheets load via synced Drive exports (your Google Drive connector); re-sync by asking the assistant. SharePoint live upload still needs edit permission.
+      Passwords / SAS keys / POC emails are never shown.
+    </div>
+
+    <section class="card">
+      <h2>1. Inputs</h2>
+      <div class="row">
+        <label>Control workbook (.xlsx)
+          <input type="file" id="control" accept=".xlsx,.xlsm" />
+        </label>
+        <label>Optional single source sheet (.xlsx)
+          <input type="file" id="source_sheet" accept=".xlsx,.xlsm" />
+        </label>
+        <label>Tag vendor for single source (optional)
+          <input type="text" id="source_vendor" placeholder="e.g. alchemy" />
+        </label>
+      </div>
+      <div class="row" style="margin-top:.75rem">
+        <label>Extra vendor source files (filename should include vendor name)
+          <input type="file" id="vendor_files" accept=".xlsx,.xlsm" multiple />
+        </label>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="demo_mode" checked /> Demo mode (synthetic control + alchemy/arcca samples + live OneForma)</label>
+        <label><input type="checkbox" id="skip_oneforma" /> Skip OneForma (offline merge only)</label>
+      </div>
+      <div class="actions">
+        <button id="btnRun">Run merge + QA</button>
+        <button class="secondary" id="btnFilters" type="button">Probe OneForma filters</button>
+        <button class="success" id="btnDownload" type="button" disabled>Download Result_Merged.xlsx</button>
+        <button class="success" id="btnSendVendorProd" type="button" disabled>Send data to Vendor Prod Files</button>
+      </div>
+      <p class="hint">Demo mode uses <code>samples/demo_control.xlsx</code>. Google Column G links prefer <code>samples/gdrive_sync/{vendor}.xlsx</code> (<code>source=gdrive_sync</code>); ask the assistant to re-sync from Drive. Pangeanic keeps the local sample (passworded filemgr). SharePoint live upload still needs edit permission.</p>
+    </section>
+
+    <section class="card">
+      <h2>2. Progress log</h2>
+      <div id="log">Ready.</div>
+    </section>
+
+    <section class="card">
+      <h2>3. Summary</h2>
+      <div class="stats" id="stats">
+        <div class="stat"><b id="sMerged">—</b><span>Merged rows</span></div>
+        <div class="stat"><b id="sBlobs">—</b><span>OneForma blobs</span></div>
+        <div class="stat"><b id="sFindings">—</b><span>QA findings</span></div>
+        <div class="stat"><b id="sAppended">—</b><span>Rate Log appended</span></div>
+        <div class="stat"><b id="sSkipped">—</b><span>Rate Log skipped (dup)</span></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>4. Source status</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Vendor</th><th>Status</th><th>Rows</th><th>Detail</th></tr></thead>
+          <tbody id="srcBody"><tr><td colspan="4" style="color:var(--muted)">No run yet</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>5. QA findings</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Sev</th><th>Vendor</th><th>Issue</th><th>File</th><th>Folder</th><th>Locale</th><th>Detail</th></tr></thead>
+          <tbody id="qaBody"><tr><td colspan="7" style="color:var(--muted)">No run yet</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script>
+    const logEl = document.getElementById('log');
+    function setLog(lines) {
+      logEl.textContent = (Array.isArray(lines) ? lines.join('\n') : String(lines)) || '';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    function sevClass(s) {
+      s = (s || '').toLowerCase();
+      if (s === 'error') return 'sev sev-error';
+      if (s === 'warning') return 'sev sev-warning';
+      return 'sev sev-info';
+    }
+    function render(data) {
+      document.getElementById('sMerged').textContent = data.merged_count ?? '—';
+      document.getElementById('sBlobs').textContent = data.blob_count ?? '—';
+      document.getElementById('sFindings').textContent = (data.findings || []).length;
+      document.getElementById('btnDownload').disabled = !data.ok;
+      document.getElementById('btnSendVendorProd').disabled = !data.ok;
+      if (data.appended != null) document.getElementById('sAppended').textContent = data.appended;
+      if (data.skipped_duplicates != null) document.getElementById('sSkipped').textContent = data.skipped_duplicates;
+
+      const sb = document.getElementById('srcBody');
+      const statuses = data.source_statuses || [];
+      sb.innerHTML = statuses.length ? statuses.map(s =>
+        `<tr><td>${esc(s.vendor)}</td><td>${esc(s.status)}</td><td>${s.rows_loaded}</td><td>${esc(s.detail)}</td></tr>`
+      ).join('') : '<tr><td colspan="4">None</td></tr>';
+
+      const qb = document.getElementById('qaBody');
+      const findings = data.findings || [];
+      // Prefer actionable issues first; cap display for huge blob-missing lists
+      const prioritized = [...findings].sort((a,b) => rank(a.severity) - rank(b.severity));
+      const shown = prioritized.slice(0, 200);
+      qb.innerHTML = shown.length ? shown.map(f =>
+        `<tr>
+          <td><span class="${sevClass(f.severity)}">${esc(f.severity)}</span></td>
+          <td>${esc(f.vendor)}</td><td>${esc(f.issue)}</td>
+          <td>${esc(f.fileName)}</td><td>${esc(f.folderName)}</td>
+          <td>${esc(f.locale)}</td><td>${esc(f.detail)}</td>
+        </tr>`
+      ).join('') + (findings.length > 200 ? `<tr><td colspan="7">… ${findings.length - 200} more (see Result_Merged.xlsx QA_Findings)</td></tr>` : '')
+        : '<tr><td colspan="7">No findings</td></tr>';
+    }
+    function rank(s){ return ({error:0,warning:1,info:2}[(s||'').toLowerCase()] ?? 9); }
+    function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    document.getElementById('btnRun').onclick = async () => {
+      const btn = document.getElementById('btnRun');
+      btn.disabled = true;
+      setLog('Running…');
+      const fd = new FormData();
+      const control = document.getElementById('control').files[0];
+      const source = document.getElementById('source_sheet').files[0];
+      const vendorFiles = document.getElementById('vendor_files').files;
+      if (control) fd.append('control', control);
+      if (source) {
+        fd.append('source_sheet', source);
+        const tag = document.getElementById('source_vendor').value.trim();
+        if (tag) fd.append('source_vendor', tag);
+      }
+      for (const f of vendorFiles) fd.append('vendor_files', f);
+      if (document.getElementById('demo_mode').checked) fd.append('demo_mode', '1');
+      if (document.getElementById('skip_oneforma').checked) fd.append('skip_oneforma', '1');
+      try {
+        const res = await fetch('/api/run', { method: 'POST', body: fd });
+        const data = await res.json();
+        setLog(data.logs || data.error || JSON.stringify(data, null, 2));
+        render(data);
+        if (!data.ok) alert('Run failed: ' + (data.error || res.status));
+      } catch (e) {
+        setLog(String(e));
+        alert(e);
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    document.getElementById('btnDownload').onclick = () => {
+      window.location.href = '/api/download/result';
+    };
+
+    document.getElementById('btnSendVendorProd').onclick = async () => {
+      const btn = document.getElementById('btnSendVendorProd');
+      btn.disabled = true;
+      setLog((logEl.textContent || '') + '\nSending to Vendor Prod Files (Rate Approval Log)…');
+      try {
+        const fd = new FormData();
+        const res = await fetch('/api/send-vendor-prod', { method: 'POST', body: fd });
+        const data = await res.json();
+        const lines = (data.logs || []).length ? data.logs : [
+          data.ok
+            ? `Send OK: appended=${data.appended} skipped_duplicates=${data.skipped_duplicates} skipped_incomplete=${data.skipped_incomplete} next_row=${data.next_row}`
+            : (`Send failed: ` + (data.error || res.status))
+        ];
+        setLog(lines);
+        if (data.appended != null) document.getElementById('sAppended').textContent = data.appended;
+        if (data.skipped_duplicates != null) document.getElementById('sSkipped').textContent = data.skipped_duplicates;
+        if (!data.ok) alert('Send failed: ' + (data.error || res.status));
+      } catch (e) {
+        setLog(String(e));
+        alert(e);
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    document.getElementById('btnFilters').onclick = async () => {
+      setLog('Fetching OneForma filters via proxy…');
+      try {
+        const res = await fetch('/api/oneforma/filters');
+        const data = await res.json();
+        setLog(JSON.stringify(data, null, 2));
+      } catch (e) {
+        setLog(String(e));
+      }
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+uploads/
+masters/
+*.sas
+secrets/
+*.secret
+.env
+.DS_Store
+samples/control_real.xlsx
+**/downloaded_sharepoint*
+
+samples/gdrive_sync/
