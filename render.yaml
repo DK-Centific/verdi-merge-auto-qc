@@ -10,3 +10,19 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.8"
+      - key: SHAREPOINT_VENDOR_PROD_URL
+        value: "https://digitaltechedge.sharepoint.com/:x:/r/sites/Verdi_Juniper/Shared%20Documents/Vendor%20Audio%20Production/Vendor%20Prod%20Files.xlsx"
+      - key: SHAREPOINT_SITE_HOSTNAME
+        value: digitaltechedge.sharepoint.com
+      - key: SHAREPOINT_SITE_PATH
+        value: sites/Verdi_Juniper
+      - key: SHAREPOINT_FILE_PATH
+        value: Vendor Audio Production/Vendor Prod Files.xlsx
+      - key: AZURE_TENANT_ID
+        sync: false
+      - key: AZURE_CLIENT_ID
+        sync: false
+      - key: AZURE_CLIENT_SECRET
+        sync: false
+      - key: SHAREPOINT_GRAPH_TOKEN
+        sync: false

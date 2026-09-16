@@ -96,13 +96,12 @@
         <div class="nav-sub">Centific</div>
       </div>
     </div>
-    <p class="tagline">OTS Agency Intake → merge + OneForma QA · Send → Rate Approval Log (dedupe by File Name) · secrets masked</p>
+    <p class="tagline">OTS Agency Intake → merge + OneForma QA · Send → SharePoint Rate Approval Log (dedupe by File Name) · secrets masked</p>
   </header>
   <main>
-    <div class="banner">
-      Pipeline: Control workbook → vendor sources (Column G or uploaded fallbacks) → consolidate to OTS columns (incl. ingestionBatch + durationSeconds) → QA vs live OneForma → optional <b>Send data to Vendor Prod Files</b> (appends unique rows into Rate Approval Log on the local master copy; duplicates skipped by File Name).
-      Google Sheets load via synced Drive exports (your Google Drive connector); re-sync by asking the assistant. SharePoint live upload still needs edit permission.
-      Passwords / SAS keys / POC emails are never shown.
+    <div class="banner" id="destBanner">
+      Pipeline: Control workbook → vendor sources → OTS merge + OneForma QA → <b>Vendor Prod Rate Approval Log</b> rows (A/B/E/F/G/T/U/V). After Run, this page shows unique vs duplicate counts against the destination Rate Approval Log. Send appends only unique File Names (column T; also the vendor|project|locale|fileName|filePath composite).
+      Checking destination…
     </div>
 
     <section class="card">
@@ -131,9 +130,13 @@
         <button id="btnRun">Run merge + QA</button>
         <button class="secondary" id="btnFilters" type="button">Probe OneForma filters</button>
         <button class="success" id="btnDownload" type="button" disabled>Download Result_Merged.xlsx</button>
+        <button class="success" id="btnDownloadVendorProd" type="button" disabled>Download Vendor Prod rows</button>
         <button class="success" id="btnSendVendorProd" type="button" disabled>Send data to Vendor Prod Files</button>
       </div>
-      <p class="hint">Demo mode uses <code>samples/demo_control.xlsx</code>. Google Column G links prefer <code>samples/gdrive_sync/{vendor}.xlsx</code> (<code>source=gdrive_sync</code>); ask the assistant to re-sync from Drive. Pangeanic keeps the local sample (passworded filemgr). SharePoint live upload still needs edit permission.</p>
+      <div class="checks">
+        <label><input type="checkbox" id="force_local" /> Send to local master only (demo fallback)</label>
+      </div>
+      <p class="hint">Demo mode uses <code>samples/demo_control.xlsx</code>. After Run you can download the Rate Approval Log row format (Vendor Name, Project Code, Workflow, Locale, Ingestion Batch, File Name, File path, Durations). Send checks duplicates against the live SharePoint Rate Approval Log when Azure/Graph env is set; otherwise it uses <code>masters/Vendor Prod Files.xlsx</code>. Passwords / SAS keys are never shown.</p>
     </section>
 
     <section class="card">
@@ -147,8 +150,23 @@
         <div class="stat"><b id="sMerged">—</b><span>Merged rows</span></div>
         <div class="stat"><b id="sBlobs">—</b><span>OneForma blobs</span></div>
         <div class="stat"><b id="sFindings">—</b><span>QA findings</span></div>
+        <div class="stat"><b id="sVendorProd">—</b><span>Vendor Prod rows</span></div>
+        <div class="stat"><b id="sUnique">—</b><span>Unique vs Rate Log</span></div>
+        <div class="stat"><b id="sDuplicate">—</b><span>Duplicate vs Rate Log</span></div>
         <div class="stat"><b id="sAppended">—</b><span>Rate Log appended</span></div>
         <div class="stat"><b id="sSkipped">—</b><span>Rate Log skipped (dup)</span></div>
+      </div>
+      <p class="hint" id="dedupeHint">Unique / duplicate counts appear after Run merge + QA. Key: File Name (column T).</p>
+    </section>
+
+    <section class="card">
+      <h2>3b. Vendor Prod preview (Rate Approval Log format)</h2>
+      <p class="hint">Filled columns only: A Vendor Name, B Project Code, E Workflow, F Locale, G Ingestion Batch, T File Name, U File path, V Durations (seconds). Other Rate Approval Log columns are left alone.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Status</th><th>Vendor</th><th>Project</th><th>Locale</th><th>Batch</th><th>File Name</th><th>Duration (s)</th></tr></thead>
+          <tbody id="vpBody"><tr><td colspan="7" style="color:var(--muted)">No run yet</td></tr></tbody>
+        </table>
       </div>
     </section>
 
@@ -189,9 +207,25 @@
       document.getElementById('sBlobs').textContent = data.blob_count ?? '—';
       document.getElementById('sFindings').textContent = (data.findings || []).length;
       document.getElementById('btnDownload').disabled = !data.ok;
+      document.getElementById('btnDownloadVendorProd').disabled = !data.ok;
       document.getElementById('btnSendVendorProd').disabled = !data.ok;
+      const vp = data.vendor_prod || {};
+      const built = data.rate_rows_built ?? vp.rate_rows_built;
+      const uniq = data.unique_count ?? vp.unique_count;
+      const dups = data.duplicate_count ?? vp.duplicate_count;
+      if (built != null) document.getElementById('sVendorProd').textContent = built;
+      if (uniq != null) document.getElementById('sUnique').textContent = uniq;
+      if (dups != null) document.getElementById('sDuplicate').textContent = dups;
       if (data.appended != null) document.getElementById('sAppended').textContent = data.appended;
       if (data.skipped_duplicates != null) document.getElementById('sSkipped').textContent = data.skipped_duplicates;
+      const dest = (vp.destination || {});
+      const destLabel = dest.label || dest.kind || '';
+      const key = data.dedupe_key || vp.dedupe_key || 'File Name (column T)';
+      document.getElementById('dedupeHint').textContent =
+        `Unique / duplicate vs Rate Approval Log. Key: ${key}` +
+        (destLabel ? ` · Compared against: ${destLabel}` : '') +
+        (dest.existing_file_names != null ? ` (${dest.existing_file_names} existing File Names)` : '');
+      renderVendorProd(vp);
 
       const sb = document.getElementById('srcBody');
       const statuses = data.source_statuses || [];
@@ -216,6 +250,40 @@
     }
     function rank(s){ return ({error:0,warning:1,info:2}[(s||'').toLowerCase()] ?? 9); }
     function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function renderVendorProd(vp) {
+      const tb = document.getElementById('vpBody');
+      const rows = []
+        .concat((vp.unique_rows || []).map(r => ({...r, dedupeStatus: r.dedupeStatus || 'unique'})))
+        .concat((vp.duplicate_rows || []).map(r => ({...r, dedupeStatus: r.dedupeStatus || 'duplicate'})))
+        .concat((vp.incomplete_rows || []).map(r => ({...r, dedupeStatus: r.dedupeStatus || 'incomplete'})));
+      if (!rows.length) {
+        tb.innerHTML = '<tr><td colspan="7" style="color:var(--muted)">No Vendor Prod rows in this run</td></tr>';
+        return;
+      }
+      const shown = rows.slice(0, 80);
+      tb.innerHTML = shown.map(r => {
+        const st = (r.dedupeStatus || '').toLowerCase();
+        const sev = st === 'unique' ? 'sev sev-info' : (st === 'duplicate' ? 'sev sev-warning' : 'sev sev-error');
+        return `<tr>
+          <td><span class="${sev}">${esc(r.dedupeStatus)}</span></td>
+          <td>${esc(r.vendorName)}</td><td>${esc(r.projectCode)}</td>
+          <td>${esc(r.locale)}</td><td>${esc(r.ingestionBatch)}</td>
+          <td>${esc(r.fileName)}</td><td>${esc(r.durationSeconds)}</td>
+        </tr>`;
+      }).join('') + (rows.length > 80 ? `<tr><td colspan="7">… ${rows.length - 80} more (see Download Vendor Prod rows)</td></tr>` : '');
+    }
+
+    async function loadDestStatus() {
+      try {
+        const res = await fetch('/api/vendor-prod/status');
+        const data = await res.json();
+        const el = document.getElementById('destBanner');
+        el.innerHTML = `Send destination: <b>${esc(data.destination_kind)}</b>. ${esc(data.message)} Dedupe key: ${esc(data.dedupe_key)}. Fill only ${esc(data.fill_columns)}.`;
+      } catch (e) {
+        document.getElementById('destBanner').textContent = 'Could not load Vendor Prod destination status.';
+      }
+    }
+    loadDestStatus();
 
     document.getElementById('btnRun').onclick = async () => {
       const btn = document.getElementById('btnRun');
@@ -251,6 +319,9 @@
     document.getElementById('btnDownload').onclick = () => {
       window.location.href = '/api/download/result';
     };
+    document.getElementById('btnDownloadVendorProd').onclick = () => {
+      window.location.href = '/api/download/vendor-prod-rows';
+    };
 
     document.getElementById('btnSendVendorProd').onclick = async () => {
       const btn = document.getElementById('btnSendVendorProd');
@@ -258,17 +329,23 @@
       setLog((logEl.textContent || '') + '\nSending to Vendor Prod Files (Rate Approval Log)…');
       try {
         const fd = new FormData();
+        if (document.getElementById('force_local').checked) fd.append('force_local', '1');
         const res = await fetch('/api/send-vendor-prod', { method: 'POST', body: fd });
         const data = await res.json();
         const lines = (data.logs || []).length ? data.logs : [
           data.ok
-            ? `Send OK: appended=${data.appended} skipped_duplicates=${data.skipped_duplicates} skipped_incomplete=${data.skipped_incomplete} next_row=${data.next_row}`
-            : (`Send failed: ` + (data.error || res.status))
+            ? `Send OK: destination=${data.destination} appended=${data.appended} skipped_duplicates=${data.skipped_duplicates} skipped_incomplete=${data.skipped_incomplete} next_row=${data.next_row}`
+            : (`Send failed: ` + (data.error || res.status) + (data.hint ? `\n${data.hint}` : ''))
         ];
         setLog(lines);
         if (data.appended != null) document.getElementById('sAppended').textContent = data.appended;
         if (data.skipped_duplicates != null) document.getElementById('sSkipped').textContent = data.skipped_duplicates;
-        if (!data.ok) alert('Send failed: ' + (data.error || res.status));
+        if (data.unique_count != null) document.getElementById('sUnique').textContent = data.unique_count;
+        if (data.duplicate_count != null) document.getElementById('sDuplicate').textContent = data.duplicate_count;
+        if (!data.ok) alert('Send failed: ' + (data.error || res.status) + (data.hint ? '\n\n' + data.hint : ''));
+        else if (data.destination === 'sharepoint' && data.sharepoint_uploaded) {
+          alert('Send complete. Unique rows were added on the SharePoint Vendor Prod Files workbook.');
+        }
       } catch (e) {
         setLog(String(e));
         alert(e);

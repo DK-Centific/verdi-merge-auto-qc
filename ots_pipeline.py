@@ -851,8 +851,9 @@ def write_result_workbook(
     findings: list[QAFinding],
     source_statuses: list[SourceStatus],
     vendors: list[VendorControl],
+    vendor_prod_preview: Optional[dict[str, Any]] = None,
 ) -> bytes:
-    """Build Result_Merged.xlsx: Merged (OTS cols) + QA_Findings + Source_Status + Control_Masked."""
+    """Build Result_Merged.xlsx: Merged + Vendor_Prod_Rows + QA_Findings + Source_Status + Control_Masked."""
     wb = openpyxl.Workbook()
 
     # --- Merged sheet from template shape ---
@@ -900,6 +901,50 @@ def write_result_workbook(
             row_out = [rec.get(h, "") for h in data_cols]
         row_out.append(rec.get("_vendor", ""))
         ws.append(row_out)
+
+    # --- Vendor_Prod_Rows (Rate Approval Log fill columns A/B/E/F/G/T/U/V) ---
+    wvp = wb.create_sheet("Vendor_Prod_Rows")
+    wvp.append(VENDOR_PROD_SHEET_HEADERS)
+    for cell in wvp[1]:
+        cell.font = Font(bold=True)
+    preview = vendor_prod_preview or preview_vendor_prod(annotated_rows)
+    ordered_vp = (
+        list(preview.get("unique_rows") or [])
+        + list(preview.get("duplicate_rows") or [])
+        + list(preview.get("incomplete_rows") or [])
+    )
+    if not ordered_vp:
+        for rec in to_rate_approval_rows(annotated_rows):
+            wvp.append(
+                [
+                    rec.get("vendorName", ""),
+                    rec.get("projectCode", ""),
+                    rec.get("workflow", ""),
+                    rec.get("locale", ""),
+                    rec.get("ingestionBatch", ""),
+                    rec.get("fileName", ""),
+                    rec.get("filePath", ""),
+                    rec.get("durationSeconds", ""),
+                    "",
+                    "",
+                ]
+            )
+    else:
+        for rec in ordered_vp:
+            wvp.append(
+                [
+                    rec.get("vendorName", ""),
+                    rec.get("projectCode", ""),
+                    rec.get("workflow", ""),
+                    rec.get("locale", ""),
+                    rec.get("ingestionBatch", ""),
+                    rec.get("fileName", ""),
+                    rec.get("filePath", ""),
+                    rec.get("durationSeconds", ""),
+                    rec.get("dedupeStatus", ""),
+                    rec.get("dedupeReason", ""),
+                ]
+            )
 
     # --- QA_Findings ---
     wq = wb.create_sheet("QA_Findings")
@@ -963,6 +1008,8 @@ def run_pipeline(
     log: Optional[LogFn] = None,
     oneforma_vendors: Optional[list[str]] = None,
     skip_oneforma: bool = False,
+    existing_rate_names: Optional[set[str]] = None,
+    existing_rate_composite: Optional[set[str]] = None,
 ) -> dict[str, Any]:
     vendors = parse_control_workbook(control_bytes, log=log)
     rows, statuses = load_vendor_sources(vendors, fallback_files, log=log)
@@ -993,7 +1040,6 @@ def run_pipeline(
         _log(log, "Skipping OneForma (skip_oneforma=1)")
 
     annotated, findings = run_qa(rows, blob_rows, statuses, log=log)
-    xlsx = write_result_workbook(annotated, findings, statuses, vendors)
 
     # Drop internal-only keys from public merged_rows but keep enrichment fields
     public_rows: list[dict[str, Any]] = []
@@ -1001,9 +1047,32 @@ def run_pipeline(
         pr = {k: v for k, v in r.items()}
         public_rows.append(pr)
 
+    vendor_prod = preview_vendor_prod(
+        public_rows,
+        existing_rate_names,
+        existing_rate_composite,
+    )
+    _log(
+        log,
+        "Vendor Prod Rate Approval rows: "
+        f"built={vendor_prod['rate_rows_built']} "
+        f"unique={vendor_prod['unique_count']} "
+        f"duplicate={vendor_prod['duplicate_count']} "
+        f"incomplete={vendor_prod['incomplete_count']} "
+        f"key={RATE_DEDUPE_KEY}",
+    )
+    xlsx = write_result_workbook(
+        annotated,
+        findings,
+        statuses,
+        vendors,
+        vendor_prod_preview=vendor_prod,
+    )
+
     return {
         "xlsx_bytes": xlsx,
         "merged_rows": public_rows,
+        "vendor_prod": vendor_prod,
         "findings": [asdict(f) for f in findings],
         "source_statuses": [asdict(s) for s in statuses],
         "merged_count": len(annotated),
@@ -1027,6 +1096,31 @@ def run_pipeline(
 
 RATE_APPROVAL_SHEET = "Rate Approval Log"
 DEFAULT_MASTER_PATH = ROOT / "masters" / "Vendor Prod Files.xlsx"
+# File Name (col T) is the primary Rate Approval Log dedupe key.
+# Composite A|B|F|T|U is also checked so a blank-T historical row cannot collide later.
+RATE_DEDUPE_KEY = "fileName (column T); also composite vendor|project|locale|fileName|filePath"
+VENDOR_PROD_FILL_COLUMNS = (
+    "vendorName",
+    "projectCode",
+    "workflow",
+    "locale",
+    "ingestionBatch",
+    "fileName",
+    "filePath",
+    "durationSeconds",
+)
+VENDOR_PROD_SHEET_HEADERS = [
+    "Vendor Name",
+    "Project Code",
+    "Workflow",
+    "Locale",
+    "Ingestion Batch",
+    "File Name",
+    "File path",
+    "Durations (seconds)",
+    "dedupeStatus",
+    "dedupeReason",
+]
 
 
 def _batch_to_excel_date(batch: Any):
@@ -1079,6 +1173,166 @@ def to_rate_approval_rows(merged_rows: list[dict[str, Any]]) -> list[dict[str, A
     return out
 
 
+def rate_approval_keys(row: dict[str, Any]) -> tuple[str, str]:
+    """Return (file_name_key, composite_key) for Rate Approval Log dedupe."""
+    vendor = str(row.get("vendorName") or "").strip()
+    project = str(row.get("projectCode") or "Maple").strip() or "Maple"
+    locale = str(row.get("locale") or "").strip()
+    file_name = str(row.get("fileName") or "").strip()
+    file_path = str(row.get("filePath") or "").strip()
+    name_key = file_name.lower()
+    composite = f"{vendor.lower()}|{project.lower()}|{locale.lower()}|{name_key}|{file_path.lower()}"
+    return name_key, composite
+
+
+def extract_existing_rate_keys(ws) -> tuple[set[str], set[str]]:
+    """Scan Rate Approval Log for existing File Name (T) and composite A|B|F|T|U keys."""
+    existing_names: set[str] = set()
+    existing_composite: set[str] = set()
+    notes_start = _find_notes_start(ws)
+    scan_limit = (notes_start - 1) if notes_start else ws.max_row
+    for r in range(2, scan_limit + 1):
+        a = str(ws.cell(r, 1).value or "").strip()
+        b = str(ws.cell(r, 2).value or "").strip()
+        f = str(ws.cell(r, 6).value or "").strip()
+        t = str(ws.cell(r, 20).value or "").strip()
+        u = str(ws.cell(r, 21).value or "").strip()
+        if t:
+            existing_names.add(t.lower())
+        if a or t:
+            existing_composite.add(f"{a.lower()}|{b.lower()}|{f.lower()}|{t.lower()}|{u.lower()}")
+    return existing_names, existing_composite
+
+
+def extract_existing_rate_keys_from_bytes(data: bytes) -> tuple[set[str], set[str]]:
+    wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+    if RATE_APPROVAL_SHEET not in wb.sheetnames:
+        raise ValueError(f"Sheet {RATE_APPROVAL_SHEET!r} missing from workbook")
+    return extract_existing_rate_keys(wb[RATE_APPROVAL_SHEET])
+
+
+def extract_existing_rate_keys_from_path(path: Path | str) -> tuple[set[str], set[str]]:
+    path = Path(path)
+    wb = openpyxl.load_workbook(path, data_only=True)
+    if RATE_APPROVAL_SHEET not in wb.sheetnames:
+        raise ValueError(f"Sheet {RATE_APPROVAL_SHEET!r} missing from {path.name}")
+    return extract_existing_rate_keys(wb[RATE_APPROVAL_SHEET])
+
+
+def classify_rate_approval_rows(
+    new_rows: list[dict[str, Any]],
+    existing_names: Optional[set[str]] = None,
+    existing_composite: Optional[set[str]] = None,
+) -> dict[str, Any]:
+    """Split rows into unique / duplicate / incomplete using the Rate Approval Log key.
+
+    Mutates copies of the input sets so intra-batch File Name repeats count as duplicates.
+    """
+    names = set(existing_names or set())
+    composites = set(existing_composite or set())
+    unique_rows: list[dict[str, Any]] = []
+    duplicate_rows: list[dict[str, Any]] = []
+    incomplete_rows: list[dict[str, Any]] = []
+
+    for src in new_rows or []:
+        row = {k: src.get(k) for k in VENDOR_PROD_FILL_COLUMNS}
+        vendor = str(row.get("vendorName") or "").strip()
+        file_name = str(row.get("fileName") or "").strip()
+        if not vendor or not file_name:
+            tagged = {
+                **row,
+                "dedupeStatus": "incomplete",
+                "dedupeReason": "missing Vendor Name and/or File Name",
+            }
+            incomplete_rows.append(tagged)
+            continue
+        name_key, composite = rate_approval_keys(row)
+        if name_key in names:
+            tagged = {
+                **row,
+                "dedupeStatus": "duplicate",
+                "dedupeReason": f"File Name already on Rate Approval Log: {file_name}",
+            }
+            duplicate_rows.append(tagged)
+            continue
+        if composite in composites:
+            tagged = {
+                **row,
+                "dedupeStatus": "duplicate",
+                "dedupeReason": "composite vendor|project|locale|fileName|filePath already present",
+            }
+            duplicate_rows.append(tagged)
+            continue
+        names.add(name_key)
+        composites.add(composite)
+        tagged = {**row, "dedupeStatus": "unique", "dedupeReason": "not on Rate Approval Log"}
+        unique_rows.append(tagged)
+
+    return {
+        "unique_rows": unique_rows,
+        "duplicate_rows": duplicate_rows,
+        "incomplete_rows": incomplete_rows,
+        "unique_count": len(unique_rows),
+        "duplicate_count": len(duplicate_rows),
+        "incomplete_count": len(incomplete_rows),
+        "rate_rows_built": len(new_rows or []),
+        "dedupe_key": RATE_DEDUPE_KEY,
+    }
+
+
+def preview_vendor_prod(
+    merged_rows: list[dict[str, Any]],
+    existing_names: Optional[set[str]] = None,
+    existing_composite: Optional[set[str]] = None,
+) -> dict[str, Any]:
+    """Map merged/enriched rows → Rate Approval Log format and classify vs destination keys."""
+    rate_rows = to_rate_approval_rows(merged_rows)
+    classified = classify_rate_approval_rows(rate_rows, existing_names, existing_composite)
+    classified["rate_rows"] = rate_rows
+    classified["unique_file_names"] = [
+        str(r.get("fileName") or "") for r in classified["unique_rows"]
+    ]
+    classified["duplicate_file_names"] = [
+        str(r.get("fileName") or "") for r in classified["duplicate_rows"]
+    ]
+    return classified
+
+
+def write_vendor_prod_preview_xlsx(preview: dict[str, Any]) -> bytes:
+    """Small workbook of Rate Approval Log fill columns + dedupe status."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Vendor_Prod_Rows"
+    ws.append(VENDOR_PROD_SHEET_HEADERS)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    ordered = (
+        list(preview.get("unique_rows") or [])
+        + list(preview.get("duplicate_rows") or [])
+        + list(preview.get("incomplete_rows") or [])
+    )
+    for rec in ordered:
+        ws.append(
+            [
+                rec.get("vendorName", ""),
+                rec.get("projectCode", ""),
+                rec.get("workflow", ""),
+                rec.get("locale", ""),
+                rec.get("ingestionBatch", ""),
+                rec.get("fileName", ""),
+                rec.get("filePath", ""),
+                rec.get("durationSeconds", ""),
+                rec.get("dedupeStatus", ""),
+                rec.get("dedupeReason", ""),
+            ]
+        )
+    for col in range(1, len(VENDOR_PROD_SHEET_HEADERS) + 1):
+        ws.column_dimensions[get_column_letter(col)].width = 22
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def _find_last_data_row(ws) -> int:
     """Last row with Vendor Name (A) or File Name (T) filled in the data area (before notes)."""
     notes_start = None
@@ -1113,10 +1367,6 @@ def append_rate_approval_log(
 
     Returns {appended, skipped_duplicates, skipped_incomplete, next_row, master_path}.
     """
-    import tempfile
-    import shutil
-    from datetime import datetime as dt
-
     master_path = Path(master_path)
     if not master_path.exists():
         raise FileNotFoundError(f"Master workbook not found: {master_path}")
@@ -1124,46 +1374,71 @@ def append_rate_approval_log(
     wb = openpyxl.load_workbook(master_path)
     if RATE_APPROVAL_SHEET not in wb.sheetnames:
         raise ValueError(f"Sheet {RATE_APPROVAL_SHEET!r} missing from {master_path.name}")
+    classified, last_data = _append_rate_rows_to_workbook(wb, new_rows)
+    _atomic_save_workbook(wb, master_path)
+    return _append_summary(classified, last_data, str(master_path))
+
+
+def append_rate_approval_log_bytes(
+    data: bytes,
+    new_rows: list[dict[str, Any]],
+) -> tuple[bytes, dict[str, Any]]:
+    """Append unique Rate Approval Log rows in memory; return (xlsx_bytes, summary)."""
+    wb = openpyxl.load_workbook(io.BytesIO(data))
+    if RATE_APPROVAL_SHEET not in wb.sheetnames:
+        raise ValueError(f"Sheet {RATE_APPROVAL_SHEET!r} missing from workbook")
+    classified, last_data = _append_rate_rows_to_workbook(wb, new_rows)
+    buf = io.BytesIO()
+    wb.save(buf)
+    summary = _append_summary(classified, last_data, "in-memory")
+    return buf.getvalue(), summary
+
+
+def _append_summary(classified: dict[str, Any], last_data: int, master_path: str) -> dict[str, Any]:
+    appended = classified["unique_count"]
+    return {
+        "appended": appended,
+        "skipped_duplicates": classified["duplicate_count"],
+        "skipped_incomplete": classified["incomplete_count"],
+        "next_row": last_data + 1 + appended,
+        "master_path": master_path,
+        "last_data_row_before": last_data,
+        "dedupe_key": RATE_DEDUPE_KEY,
+        "unique_file_names": [str(r.get("fileName") or "") for r in classified["unique_rows"]],
+        "duplicate_file_names": [str(r.get("fileName") or "") for r in classified["duplicate_rows"]],
+    }
+
+
+def _atomic_save_workbook(wb, master_path: Path) -> None:
+    import os
+    import tempfile
+
+    master_path = Path(master_path)
+    master_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(suffix=".xlsx", dir=str(master_path.parent))
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        wb.save(tmp_path)
+        tmp_path.replace(master_path)
+    except Exception:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def _append_rate_rows_to_workbook(
+    wb,
+    new_rows: list[dict[str, Any]],
+) -> tuple[dict[str, Any], int]:
+    """Mutate workbook: append only unique Rate Approval Log rows. Returns (classified, last_data)."""
+    if RATE_APPROVAL_SHEET not in wb.sheetnames:
+        raise ValueError(f"Sheet {RATE_APPROVAL_SHEET!r} missing from workbook")
     ws = wb[RATE_APPROVAL_SHEET]
-
-    # Existing keys: filename lower (col T), and composite A|B|F|T|U
-    existing_names: set[str] = set()
-    existing_composite: set[str] = set()
-    notes_start = _find_notes_start(ws)
-    scan_limit = (notes_start - 1) if notes_start else ws.max_row
-    for r in range(2, scan_limit + 1):
-        a = str(ws.cell(r, 1).value or "").strip()
-        b = str(ws.cell(r, 2).value or "").strip()
-        f = str(ws.cell(r, 6).value or "").strip()
-        t = str(ws.cell(r, 20).value or "").strip()
-        u = str(ws.cell(r, 21).value or "").strip()
-        if t:
-            existing_names.add(t.lower())
-        if a or t:
-            existing_composite.add(f"{a.lower()}|{b.lower()}|{f.lower()}|{t.lower()}|{u.lower()}")
-
+    existing_names, existing_composite = extract_existing_rate_keys(ws)
+    classified = classify_rate_approval_rows(new_rows, existing_names, existing_composite)
+    to_write = classified["unique_rows"]
     last_data = _find_last_data_row(ws)
-    to_write: list[dict[str, Any]] = []
-    skipped_dup = 0
-    skipped_incomplete = 0
-
-    for row in new_rows or []:
-        vendor = str(row.get("vendorName") or "").strip()
-        file_name = str(row.get("fileName") or "").strip()
-        if not vendor or not file_name:
-            skipped_incomplete += 1
-            continue
-        project = str(row.get("projectCode") or "Maple").strip() or "Maple"
-        locale = str(row.get("locale") or "").strip()
-        file_path = str(row.get("filePath") or "").strip()
-        name_key = file_name.lower()
-        comp = f"{vendor.lower()}|{project.lower()}|{locale.lower()}|{name_key}|{file_path.lower()}"
-        if name_key in existing_names or comp in existing_composite:
-            skipped_dup += 1
-            continue
-        existing_names.add(name_key)
-        existing_composite.add(comp)
-        to_write.append(row)
 
     # Make room before notes if needed. openpyxl insert_rows does not reliably
     # shift merged ranges, and note merges (P:AP) cover File Name (T) — unmerge first.
@@ -1218,31 +1493,7 @@ def append_rate_approval_log(
                 except (TypeError, ValueError):
                     ws.cell(r, 22).value = dur
 
-    next_row = last_data + 1 + len(to_write)
-
-    # Atomic replace
-    master_path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(suffix=".xlsx", dir=str(master_path.parent))
-    import os
-
-    os.close(fd)
-    tmp_path = Path(tmp_name)
-    try:
-        wb.save(tmp_path)
-        tmp_path.replace(master_path)
-    except Exception:
-        if tmp_path.exists():
-            tmp_path.unlink(missing_ok=True)
-        raise
-
-    return {
-        "appended": len(to_write),
-        "skipped_duplicates": skipped_dup,
-        "skipped_incomplete": skipped_incomplete,
-        "next_row": next_row,
-        "master_path": str(master_path),
-        "last_data_row_before": last_data,
-    }
+    return classified, last_data
 
 
 def build_demo_control_bytes() -> bytes:
