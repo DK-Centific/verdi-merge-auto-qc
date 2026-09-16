@@ -18,15 +18,25 @@
       --info: #38bdf8;
     }
     * { box-sizing: border-box; }
+    html {
+      /* Keep a reserved vertical scrollbar lane so the page does not jump
+         when results make the document taller than the viewport. */
+      scrollbar-gutter: stable;
+      overflow-x: clip;
+      max-width: 100%;
+    }
     body {
       margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       background: linear-gradient(160deg, #0b1220, #121a28 40%, #0f172a);
       color: var(--text); min-height: 100vh;
+      overflow-x: clip;
+      max-width: 100%;
     }
     header {
       padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);
       background: rgba(15,20,25,.85); backdrop-filter: blur(8px);
       position: sticky; top: 0; z-index: 10;
+      max-width: 100%;
     }
     .nav-brand {
       display: flex; align-items: center; gap: .85rem;
@@ -39,7 +49,23 @@
     header h1 { margin: 0; font-size: 1.2rem; font-weight: 650; line-height: 1.25; }
     header .nav-sub { margin: 0; color: var(--muted); font-size: .82rem; }
     header p.tagline { margin: .45rem 0 0; color: var(--muted); font-size: .85rem; }
-    main { max-width: 1100px; margin: 0 auto; padding: 1.25rem; display: grid; gap: 1rem; }
+    /* minmax(0, 1fr) lets grid children shrink; default min-width:auto lets
+       wide tables/log lines expand the document, which re-centers <main>
+       and looks like the whole column jumped right. */
+    main {
+      width: 100%;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 1.25rem;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1rem;
+      min-width: 0;
+    }
+    .card, .banner {
+      min-width: 0;
+      max-width: 100%;
+    }
     .card {
       background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
       padding: 1rem 1.1rem;
@@ -65,12 +91,22 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: .78rem; background: #0a1018; border: 1px solid var(--border);
       border-radius: 8px; padding: .75rem; height: 220px; overflow: auto; white-space: pre-wrap;
+      overflow-wrap: anywhere; word-break: break-word;
       color: #c6d4e8;
+      min-width: 0;
+      max-width: 100%;
     }
-    table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: .82rem; }
     th, td { border-bottom: 1px solid var(--border); padding: .45rem .4rem; text-align: left; vertical-align: top; }
     th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
-    .table-wrap { max-height: 360px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+    .table-wrap {
+      max-height: 360px;
+      max-width: 100%;
+      min-width: 0;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
     .sev { display: inline-block; padding: .1rem .4rem; border-radius: 999px; font-size: .7rem; font-weight: 700; text-transform: uppercase; }
     .sev-error { background: rgba(239,68,68,.2); color: #fca5a5; }
     .sev-warning { background: rgba(245,158,11,.2); color: #fcd34d; }
@@ -84,6 +120,7 @@
     .banner {
       background: rgba(59,130,246,.12); border: 1px solid rgba(59,130,246,.35);
       color: #bfdbfe; padding: .65rem .8rem; border-radius: 8px; font-size: .85rem;
+      overflow-wrap: anywhere;
     }
   </style>
 </head>
