@@ -1,14 +1,22 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 uploads/
-masters/
+masters/*
+!masters/.gitkeep
+!masters/README.md
 *.sas
 secrets/
 *.secret
 .env
+.env.*
+!.env.example
 .DS_Store
 samples/control_real.xlsx
 **/downloaded_sharepoint*
-
 samples/gdrive_sync/
+Vendor Prod Files.xlsx
+*Vendor_Prod_Files*.xlsx
+!template.xlsx
+!samples/*.xlsx
